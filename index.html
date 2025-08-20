@@ -48,7 +48,7 @@
     dialog::backdrop{background:rgba(0,0,0,.55)}
     form.grid{grid-template-columns: 1fr 1fr; gap:12px}
     form.grid label{font-size:12px; color:#93c5fd}
-    form.grid input, form.grid select, form.grid textarea{background:#0b1020; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px}
+    form.grid input, form.grid select, form.grid textarea{background:#0b1020; color:#var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px}
     form.grid .full{grid-column:1 / -1}
   </style>
 </head>
@@ -125,8 +125,8 @@
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const DEFAULT_PHASES = [
       "Planning & Concepting",
-      "Pre‑Production & Filming",
-      "Post‑Production",
+      "Pre-Production & Filming",
+      "Post-Production",
       "Delivery & Launch"
     ];
     const TYPES = {
@@ -211,6 +211,7 @@
       const phaseF = phaseFilter.value;
       const hideEmpty = hideEmptyBtn.dataset.on === '1';
 
+      // Build each phase row
       state.phases.forEach(phase=>{
         const label = document.createElement('div'); label.className='phase cell'; label.textContent=phase; grid.appendChild(label);
         for(let m=1;m<=12;m++){ const c=document.createElement('div'); c.className='cell bars'; grid.appendChild(c); }
@@ -239,14 +240,14 @@
         .forEach(e=>{
           const rowIdx = state.phases.indexOf(e.phase);
           if(rowIdx<0) return;
-          const startCol = 1 + e.startMonth;
-          const endCol = 1 + e.endMonth + 1;
+          const startCol = 1 + e.startMonth; // +1 for left sticky column
+          const endCol = 1 + e.endMonth + 1; // end exclusive
 
           const bar = document.createElement('div');
           bar.className='bar';
           bar.style.background = `linear-gradient(135deg, ${TYPES[e.type]||'var(--teal)'}66, ${TYPES[e.type]||'var(--teal)'}AA)`;
           bar.style.gridColumn = `${startCol} / ${endCol}`;
-          bar.style.gridRow = `${rowIdx+2}`;
+          bar.style.gridRow = `${rowIdx+2}`; // +1 header row
           bar.style.margin = '8px 6px';
           bar.innerHTML = `<span class="dot" style="background:${TYPES[e.type]||'var(--teal)'}"></span><span class="meta">${e.projectId? e.projectId+ ' — ' : ''}${e.title} (${e.type})</span>`;
           bar.title = `${e.title} — ${e.phase} — ${MONTHS[e.startMonth-1]} to ${MONTHS[e.endMonth-1]} (${e.year})\nClick to edit`;
@@ -272,4 +273,85 @@
       byId('title').value = data.title || '';
       byId('type').value = data.type || Object.keys(TYPES)[0];
       byId('phase').value = data.phase || state.phases[0];
-      byId
+      byId('year').value = data.year || new Date().getFullYear();
+      byId('startMonth').value = data.startMonth || 1;
+      byId('endMonth').value = data.endMonth || Math.min(12, (data.startMonth||1));
+      byId('notes').value = data.notes || '';
+    }
+
+    function saveFromForm(){
+      const data = {
+        id: byId('id').value || uid(),
+        projectId: byId('projectId').value.trim(),
+        title: byId('title').value.trim(),
+        type: byId('type').value,
+        phase: byId('phase').value,
+        year: parseInt(byId('year').value,10),
+        startMonth: parseInt(byId('startMonth').value,10),
+        endMonth: parseInt(byId('endMonth').value,10),
+        notes: byId('notes').value.trim()
+      };
+
+      // Update or insert
+      const i = state.entries.findIndex(e=> e.id===data.id);
+      if(i>=0){
+        const prev = state.entries[i];
+        state.entries[i] = data;
+        if(data.projectId){
+          state.entries = state.entries.map(e=> e.projectId===data.projectId ? { ...e, title:data.title, type:data.type } : e);
+        }
+      } else {
+        state.entries.push(data);
+        if(data.projectId){
+          state.entries = state.entries.map(e=> e.projectId===data.projectId ? { ...e, title:data.title, type:data.type } : e);
+        }
+      }
+
+      if(!state.years.includes(data.year)) state.years.push(data.year);
+      store.save(state);
+      populateStaticUI();
+      render();
+    }
+
+    function removeEntry(id){
+      state.entries = state.entries.filter(e=> e.id!==id);
+      store.save(state); render();
+    }
+
+    function resetAll(){
+      if(!confirm('This will clear all projects. Continue?')) return;
+      state = { entries:[], phases:DEFAULT_PHASES, types:Object.keys(TYPES), years:[new Date().getFullYear()] };
+      store.save(state); populateStaticUI(); render();
+    }
+
+    // Events
+    document.getElementById('addBtn').onclick = ()=>{ fillForm({ startMonth:new Date().getMonth()+1, endMonth:new Date().getMonth()+1, phase:state.phases[0], type:Object.keys(TYPES)[0], year:parseInt(yearSelect.value,10)}); modal.showModal(); };
+    form.addEventListener('submit', (ev)=>{ ev.preventDefault(); saveFromForm(); modal.close(); });
+
+    [yearSelect, typeFilter, phaseFilter].forEach(el=> el.onchange = render);
+    search.oninput = ()=> render();
+    hideEmptyBtn.onclick = ()=>{ hideEmptyBtn.dataset.on = hideEmptyBtn.dataset.on==='1' ? '0':'1'; hideEmptyBtn.textContent = hideEmptyBtn.dataset.on==='1' ? 'Show empty phases' : 'Hide empty phases'; render(); };
+
+    document.getElementById('exportBtn').onclick = ()=>{
+      const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `production_planner_${Date.now()}.json`; a.click();
+    };
+
+    const importFile = document.getElementById('importFile');
+    document.getElementById('importBtn').onclick = ()=> importFile.click();
+    importFile.onchange = async (e)=>{
+      const file = e.target.files?.[0]; if(!file) return;
+      const text = await file.text();
+      try{ const data = JSON.parse(text); if(!data.entries) throw new Error('Invalid file'); state = data; store.save(state); populateStaticUI(); render(); }
+      catch(err){ alert('Import failed: '+err.message); }
+      finally{ importFile.value=''; }
+    };
+
+    document.getElementById('resetBtn').onclick = resetAll;
+
+    // Boot
+    populateStaticUI();
+    render();
+  </script>
+</body>
+</html>
