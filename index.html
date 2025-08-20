@@ -124,12 +124,10 @@
      *****************/
     const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const DEFAULT_PHASES = [
-      "Briefing / Intake",
-      "Pre‑Production",
-      "Production",
+      "Planning & Concepting",
+      "Pre‑Production & Filming",
       "Post‑Production",
-      "Delivery / Traffic",
-      "Performance / Reporting"
+      "Delivery & Launch"
     ];
     const TYPES = {
       "Campaign": "var(--blue)",
@@ -213,52 +211,26 @@
       const phaseF = phaseFilter.value;
       const hideEmpty = hideEmptyBtn.dataset.on === '1';
 
-      // phases rows using CSS grid: each row = 13 columns, we'll place bars spanning columns 2..13
       state.phases.forEach(phase=>{
-        // Phase label cell
         const label = document.createElement('div'); label.className='phase cell'; label.textContent=phase; grid.appendChild(label);
-        // 12 month cells (empty, but provide drop surface)
         for(let m=1;m<=12;m++){ const c=document.createElement('div'); c.className='cell bars'; grid.appendChild(c); }
 
-        // Entries for this phase
         const entries = state.entries.filter(e=> e.phase===phase && e.year===selectedYear)
           .filter(e=> !typeF || e.type===typeF)
           .filter(e=> !q || `${e.projectId} ${e.title}`.toLowerCase().includes(q));
 
-        // Hide empty phase row by turning cells transparent
         if(hideEmpty && entries.length===0){
-          // add ghost class to the last 12 cells we just added
           Array.from(grid.children).slice(-13).forEach(el=>el.classList.add('ghost'));
           return;
         }
-
-        // Place bars: we need to append a child into the correct month cell; but to span we overlay across cells
-        entries.forEach(e=>{
-          const start = Math.max(1, Math.min(12, e.startMonth));
-          const end = Math.max(start, Math.min(12, e.endMonth));
-          // Create a container spanning using absolute positioning across the 12 month cells of this row
-          // We compute left/right based on cell widths after render; for simplicity, approximate using grid column span via wrapper row element
-        });
       });
 
-      // After building base grid, overlay bars with an additional pass using CSS grid lines
-      // We rebuild using a separate overlay grid stacked on top for precise spans
       buildOverlay();
     }
 
     function buildOverlay(){
-      // Build an overlay grid mirroring the main grid rows to position span bars precisely
-      // Simpler approach: find each phase row index and append a bar element into the grid with CSS grid placement
       const selectedYear = parseInt(yearSelect.value,10);
-      // Remove old bars
       document.querySelectorAll('.bar').forEach(b=>b.remove());
-
-      const rows = [];
-      // determine row start indices (each phase row adds 13 cells)
-      for(let idx=0; idx<state.phases.length; idx++){
-        const baseIndex = 13*idx + 13; // +13 to skip header row
-        rows.push(baseIndex);
-      }
 
       state.entries.filter(e=> e.year===selectedYear)
         .filter(e=> !typeFilter.value || e.type===typeFilter.value)
@@ -267,23 +239,21 @@
         .forEach(e=>{
           const rowIdx = state.phases.indexOf(e.phase);
           if(rowIdx<0) return;
-          const startCol = 1 + e.startMonth; // +1 for left sticky column
-          const endCol = 1 + e.endMonth + 1; // end is exclusive
+          const startCol = 1 + e.startMonth;
+          const endCol = 1 + e.endMonth + 1;
 
           const bar = document.createElement('div');
           bar.className='bar';
           bar.style.background = `linear-gradient(135deg, ${TYPES[e.type]||'var(--teal)'}66, ${TYPES[e.type]||'var(--teal)'}AA)`;
           bar.style.gridColumn = `${startCol} / ${endCol}`;
-          bar.style.gridRow = `${rowIdx+2}`; // +1 for header row, +1 because CSS grid rows start at 1
+          bar.style.gridRow = `${rowIdx+2}`;
           bar.style.margin = '8px 6px';
           bar.innerHTML = `<span class="dot" style="background:${TYPES[e.type]||'var(--teal)'}"></span><span class="meta">${e.projectId? e.projectId+ ' — ' : ''}${e.title} (${e.type})</span>`;
           bar.title = `${e.title} — ${e.phase} — ${MONTHS[e.startMonth-1]} to ${MONTHS[e.endMonth-1]} (${e.year})\nClick to edit`;
           bar.onclick = ()=> openEdit(e.id);
-          // Append bar into the grid as it is a grid container
           grid.appendChild(bar);
         });
 
-      // Make grid a positioned grid for bars
       grid.style.display = 'grid';
       grid.style.gridTemplateColumns = '180px repeat(12, 1fr)';
       grid.style.position = 'relative';
@@ -302,88 +272,4 @@
       byId('title').value = data.title || '';
       byId('type').value = data.type || Object.keys(TYPES)[0];
       byId('phase').value = data.phase || state.phases[0];
-      byId('year').value = data.year || new Date().getFullYear();
-      byId('startMonth').value = data.startMonth || 1;
-      byId('endMonth').value = data.endMonth || Math.min(12, (data.startMonth||1));
-      byId('notes').value = data.notes || '';
-    }
-
-    function saveFromForm(){
-      const data = {
-        id: byId('id').value || uid(),
-        projectId: byId('projectId').value.trim(),
-        title: byId('title').value.trim(),
-        type: byId('type').value,
-        phase: byId('phase').value,
-        year: parseInt(byId('year').value,10),
-        startMonth: parseInt(byId('startMonth').value,10),
-        endMonth: parseInt(byId('endMonth').value,10),
-        notes: byId('notes').value.trim()
-      };
-
-      // If editing an existing, update; also if projectId matches others, update their title/type to keep lifecycle metadata in sync
-      const i = state.entries.findIndex(e=> e.id===data.id);
-      if(i>=0){
-        const prev = state.entries[i];
-        state.entries[i] = data;
-        if(data.projectId){ // cascade shared metadata
-          state.entries = state.entries.map(e=> e.projectId===data.projectId ? { ...e, title:data.title, type:data.type } : e);
-        }
-      } else {
-        state.entries.push(data);
-        if(data.projectId){
-          // ensure any neighbors with same projectId share title/type
-          state.entries = state.entries.map(e=> e.projectId===data.projectId ? { ...e, title:data.title, type:data.type } : e);
-        }
-      }
-
-      // Track year list
-      if(!state.years.includes(data.year)) state.years.push(data.year);
-      store.save(state);
-      populateStaticUI();
-      render();
-    }
-
-    function removeEntry(id){
-      state.entries = state.entries.filter(e=> e.id!==id);
-      store.save(state); render();
-    }
-
-    function resetAll(){
-      if(!confirm('This will clear all projects. Continue?')) return;
-      state = { entries:[], phases:DEFAULT_PHASES, types:Object.keys(TYPES), years:[new Date().getFullYear()] };
-      store.save(state); populateStaticUI(); render();
-    }
-
-    // Events
-    document.getElementById('addBtn').onclick = ()=>{ fillForm({ startMonth:new Date().getMonth()+1, endMonth:new Date().getMonth()+1, phase:state.phases[0], type:Object.keys(TYPES)[0], year:parseInt(yearSelect.value,10)}); modal.showModal(); };
-    form.addEventListener('submit', (ev)=>{ ev.preventDefault(); saveFromForm(); modal.close(); });
-    document.getElementById('saveBtn').onclick = (ev)=>{ /* handled above */ };
-
-    [yearSelect, typeFilter, phaseFilter].forEach(el=> el.onchange = render);
-    search.oninput = ()=> render();
-    hideEmptyBtn.onclick = ()=>{ hideEmptyBtn.dataset.on = hideEmptyBtn.dataset.on==='1' ? '0':'1'; hideEmptyBtn.textContent = hideEmptyBtn.dataset.on==='1' ? 'Show empty phases' : 'Hide empty phases'; render(); };
-
-    document.getElementById('exportBtn').onclick = ()=>{
-      const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `production_planner_${Date.now()}.json`; a.click();
-    };
-
-    const importFile = document.getElementById('importFile');
-    document.getElementById('importBtn').onclick = ()=> importFile.click();
-    importFile.onchange = async (e)=>{
-      const file = e.target.files?.[0]; if(!file) return;
-      const text = await file.text();
-      try{ const data = JSON.parse(text); if(!data.entries) throw new Error('Invalid file'); state = data; store.save(state); populateStaticUI(); render(); }
-      catch(err){ alert('Import failed: '+err.message); }
-      finally{ importFile.value=''; }
-    };
-
-    document.getElementById('resetBtn').onclick = resetAll;
-
-    // Boot
-    populateStaticUI();
-    render();
-  </script>
-</body>
-</html>
+      byId
